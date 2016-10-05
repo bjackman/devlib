@@ -106,8 +106,8 @@ class FtraceCollector(TraceCollector):
             self.target_binary = 'trace-cmd'
 
         # Validate required events to be traced
-        available_events = self.target.execute(
-                'cat {}'.format(self.available_events_file)).splitlines()
+        available_events = self.target.read_value(
+            self.available_events_file).splitlines()
         selected_events = []
         for event in self.events:
             # Convert globs supported by FTrace into valid regexp globs
