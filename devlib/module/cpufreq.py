@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import os
+
+from devlib.host import PACKAGE_BIN_DIRECTORY
 from devlib.module import Module
 from devlib.exception import TargetError
 from devlib.utils.misc import memoized
@@ -48,6 +51,7 @@ class CpufreqModule(Module):
     def __init__(self, target):
         super(CpufreqModule, self).__init__(target)
         self._governor_tunables = {}
+        self._alternate_freqs_path = None
 
     @memoized
     def list_governors(self, cpu):
@@ -421,3 +425,51 @@ class CpufreqModule(Module):
         sysfile = '/sys/devices/system/cpu/{}/cpufreq/affected_cpus'.format(cpu)
 
         return [int(c) for c in self.target.read_value(sysfile).split()]
+
+    def install_alternate_freqs_tool(self):
+        """
+        Install the binary tool used by :meth:`alternate_freqs`
+
+        :meth:`alternate_freqs` handles this automatically so it is not
+        functionally necessary to call this method. However installing the tool
+        will result in extra time and CPU usage which may interfere with
+        measurements.
+        """
+        host_path = os.path.join(
+            PACKAGE_BIN_DIRECTORY, self.target.abi, 'alternate-freqs')
+        self._alternate_freqs_path = self.target.install(host_path)
+
+    def alternate_freqs(self, cpu, freq1, freq2, hz, duration_s,
+                        background=False):
+        """
+        Quickly alternate between two frequencies
+
+        This uses a binary tool and the userspace governor to alternate quickly
+        between two CPU frequencies. Calling this method with different
+        alternation rates is intended to result in the same _average_ frequency.
+        Thus, this method can be used to attempt to analyse the cost of
+        frequency transitions in order to determine optimal DVFS policies.
+
+        :param cpu: CPU to alternate frequencies for.
+        :type cpu: int
+        :param freq1:
+        :param freq2:
+
+        TODO LOL
+        """
+        if not self._alternate_freqs_path:
+            self.install_alternate_freqs_tool()
+
+        interval_us = 1e6 / hz
+        num_loops = (duration_s  * 1e6 / interval_us) / 2
+
+        cmd = '{} {} {} {} {} {}'.format(
+            self._alternate_freqs_path,
+            cpu, freq1, freq2, interval_us, num_loops)
+
+        if background:
+            method = self.target.background
+        else:
+            method = self.target.execute
+
+        return method(cmd, as_root=True)
