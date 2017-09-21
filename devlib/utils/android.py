@@ -626,9 +626,9 @@ class LogcatMonitor(threading.Thread):
         """
         self._flush_lines()
 
-        with self._datalock:
-            with open(self._logfile, 'r') as fh:
-                res = [line for line in fh]
+        with open(self._logfile.name) as fh:
+            return [line for line in fh]
+
 
         return res
 
@@ -637,17 +637,9 @@ class LogcatMonitor(threading.Thread):
         Search a line that matches a regexp in the logcat log
         Return immediatly
         """
-        res = []
-
         self._flush_lines()
 
-        with self._datalock:
-            with open(self._logfile, 'r') as fh:
-                for line in fh:
-                    if re.match(regexp, line):
-                        res.append(line)
-
-        return res
+        return [line for line in self.get_log() if re.match(regexp, line)]
 
     def wait_for(self, regexp, timeout=30):
         """
