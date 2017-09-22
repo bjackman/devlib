@@ -207,9 +207,9 @@ class GfxinfoFrameCollector(FrameCollector):
                     if line.startswith('---PROFILEDATA---'):
                         break
                     entries = map(int, line.strip().split(',')[:-1])  # has a trailing ','
-                    if entries[-1] <= last_vsync:
+                    if entries[1] <= last_vsync:
                         continue  # repeat frame
-                    last_vsync = entries[-1]
+                    last_vsync = entries[1]
                     self.frames.append(entries)
         except StopIteration:
             pass

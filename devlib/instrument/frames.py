@@ -66,7 +66,7 @@ class GfxInfoFramesInstrument(FramesInstrument):
             if entry == 'Flags':
                 self.add_channel('Flags', MeasurementType('flags', 'flags'))
             else:
-                self.add_channel(entry / 1000, 'time_us')
+                self.add_channel(entry, 'time_us')
         self.header = [chan.label for chan in self.channels.values()]
 
 
