@@ -616,7 +616,7 @@ class LogcatMonitor(threading.Thread):
         with self._datalock:
             while not self._lines.empty():
                 self._lines.get()
-                
+
             with open(self._logfile, 'w') as fh:
                 pass
 
@@ -671,3 +671,47 @@ class LogcatMonitor(threading.Thread):
             return [self._found]
         else:
             raise RuntimeError('Logcat monitor timeout ({}s)'.format(timeout))
+
+class AndroidScreen(object):
+    """
+    Class encapsulating screen operations for Android devices
+    """
+    def __init__(self, target):
+        self.target = target
+
+    def set_orientation(self, auto=False, portrait=None):
+        """
+        Set screen orientation mode
+
+        TODO: wtf?
+        """
+        acc_mode = 1 if auto else 0
+
+        # Force manual orientation of portrait specified
+        if portrait is not None:
+            acc_mode = 0
+        if acc_mode == 0:
+            usr_mode = 0 if portrait else 1
+            usr_mode_str = 'PORTRAIT' if portrait else 'LANDSCAPE'
+        else:
+            usr_mode = 0
+
+        if acc_mode == 0:
+            self.target.execute('content insert '
+                                '--uri content://settings/system '
+                                '--bind name:s:accelerometer_rotation '
+                           '--bind value:i:{}'.format(acc_mode))
+            self.target.execute('content insert '
+                                '--uri content://settings/system '
+                                '--bind name:s:user_rotation '
+                                '--bind value:i:{}'.format(usr_mode))
+        else:
+            # Force PORTRAIT mode when activation AUTO rotation
+            self.target.execute('content insert '
+                                '--uri content://settings/system '
+                                '--bind name:s:user_rotation '
+                                '--bind value:i:{}'.format(usr_mode))
+            self.target.execute('content insert '
+                                '--uri content://settings/system '
+                                '--bind name:s:accelerometer_rotation '
+                                '--bind value:i:{}'.format(acc_mode))
