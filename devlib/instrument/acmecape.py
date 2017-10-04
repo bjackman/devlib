@@ -52,16 +52,22 @@ class AcmeCapeInstrument(Instrument):
         self.command = None
         self.processes = None
 
-        for device in self.iio_devices:
-            self.add_channel('shunt_{}'.format(device), 'voltage',
+        # We want to put the IIO device names in the channel names, but 'iio:'
+        # will cause an error late when MeasurementsCsv tries to create a
+        # namedtuple - the site names need to be valid Python identifiers. So
+        # strip that bit off.
+        self._iio_devices = [d[4:] for d in self.iio_devices]
+
+        for device in self._iio_devices:
+            self.add_channel('{}_shunt'.format(device), 'voltage',
                              iio_device=device, iio_column='vshunt mV')
-            self.add_channel('bus_{}'.format(device), 'voltage',
+            self.add_channel('{}_bus'.format(device), 'voltage',
                              iio_device=device, iio_column='vbus mV')
-            self.add_channel('device_{}'.format(device), 'power',
+            self.add_channel(device, 'power',
                              iio_device=device, iio_column='power mW')
-            self.add_channel('device_{}'.format(device), 'current',
+            self.add_channel('{}'.format(device), 'current',
                              iio_device=device, iio_column='current mA')
-            self.add_channel('timestamp_{}'.format(device), 'time_ms',
+            self.add_channel('{}_timestamp'.format(device), 'time_ms',
                              iio_device=device, iio_column='timestamp ms')
 
     def reset(self, sites=None, kinds=None, channels=None):
@@ -88,8 +94,10 @@ class AcmeCapeInstrument(Instrument):
             self.processes.append(Popen(command.split(), stdout=PIPE, stderr=STDOUT))
 
     def stop(self):
-        for process, raw_data_file in zip(self.processes, self.raw_data_files):
+        for process in self.processes:
             process.terminate()
+
+        for process, raw_data_file in zip(self.processes, self.raw_data_files):
             timeout_secs = 10
             output = ''
             for _ in xrange(timeout_secs):
@@ -103,39 +111,46 @@ class AcmeCapeInstrument(Instrument):
                 if process.poll() is None:
                     msg = 'Could not terminate iio-capture:\n{}'
                     raise HostError(msg.format(output))
-            if self.process.returncode != 15: # iio-capture exits with 15 when killed
-                output += self.process.stdout.read()
+            if process.returncode != 15: # iio-capture exits with 15 when killed
+                output += process.stdout.read()
                 raise HostError('iio-capture exited with an error ({}), output:\n{}'
-                                .format(self.process.returncode, output))
+                                .format(process.returncode, output))
             if not os.path.isfile(raw_data_file):
                 raise HostError('Output CSV not generated.')
 
     def get_data(self, outfile):
         class DeviceReader(object):
             def __init__(self, raw_data_file, columns):
+                self.device_file = raw_data_file
                 self._reader = csv.DictReader(open(raw_data_file, 'rb'),
                                               skipinitialspace=True)
-                self._current_row = self._reader.next()
+                self.current_row = self._reader.next()
+                self.next_row = self._reader.next()
                 self.columns = columns
+                self._nearly_finished = False
                 self.finished = False
 
             @property
-            def timestamp(self):
-                return self._current_row['timestamp ms']
-
-            @property
-            def current_row(self):
-                return [self._current_row[c] for c in self.columns]
+            def next_timestamp(self):
+                return self.next_row['timestamp ms']
 
             def pop_row(self):
-                try:
-                    self._current_row = self._reader.next()
-                except StopIteration:
+                self.current_row = self.next_row
+
+                if self._nearly_finished:
                     self.finished = True
+                    return
+
+                try:
+                    self.next_row = self._reader.next()
+                except StopIteration:
+                    self._nearly_finished = True
+
+                print 'popped from {} next_timestamp={}'.format(self.device_file, self.next_timestamp)
 
         active_devices = set(c.iio_device for c in self.active_channels)
         readers = {}
-        for device, raw_data_file in zip(self.iio_devices, self.raw_data_files):
+        for device, raw_data_file in zip(self._iio_devices, self.raw_data_files):
             print device
             if device not in active_devices:
                 print 'no'
@@ -150,7 +165,7 @@ class AcmeCapeInstrument(Instrument):
                        if c.iio_device == device]
             readers[device] = DeviceReader(raw_data_file, columns)
 
-        print readers.keys()
+        print readers
 
         with open(outfile, 'wb') as wfh:
             writer = csv.writer(wfh)
@@ -165,10 +180,13 @@ class AcmeCapeInstrument(Instrument):
 
                 writer.writerow(row)
 
-                device_to_pop = min(active_devices, key=lambda d: readers[d].timestamp)
+                device_to_pop = min(active_devices,
+                                    key=lambda d: readers[d].next_timestamp)
                 reader_to_pop = readers[device_to_pop]
+                reader_to_pop.pop_row()
                 if reader_to_pop.finished:
-                    active_devices.remove(reader_to_pop)
+                    print active_devices
+                    active_devices.remove(device_to_pop)
 
         return MeasurementsCsv(outfile, self.active_channels, self.sample_rate_hz)
 
