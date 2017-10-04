@@ -150,6 +150,8 @@ class AcmeCapeInstrument(Instrument):
                        if c.iio_device == device]
             readers[device] = DeviceReader(raw_data_file, columns)
 
+        print readers.keys()
+
         with open(outfile, 'wb') as wfh:
             writer = csv.writer(wfh)
             # Write column headers
