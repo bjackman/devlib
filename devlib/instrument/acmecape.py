@@ -50,7 +50,7 @@ class AcmeCapeInstrument(Instrument):
         if self.iio_capture is None:
             raise HostError('Missing iio-capture binary')
         self.command = None
-        self.process = None
+        self.processes = None
 
         for device in self.iio_devices:
             self.add_channel('shunt_{}'.format(device), 'voltage',
@@ -70,7 +70,7 @@ class AcmeCapeInstrument(Instrument):
         self.commands = []
         self.raw_data_files = []
         for device in self.iio_devices:
-            raw_data_file = tempfile.mkstemp('{}.csv'.format(device))[1]
+            raw_data_file = tempfile.mkstemp('_{}.csv'.format(device))[1]
             params = dict(
                 iio_capture=self.iio_capture,
                 host=self.host,
@@ -88,33 +88,33 @@ class AcmeCapeInstrument(Instrument):
             self.processes.append(Popen(command.split(), stdout=PIPE, stderr=STDOUT))
 
     def stop(self):
-        for process in self.processes:
-            self.process.terminate()
+        for process, raw_data_file in zip(self.processes, self.raw_data_files):
+            process.terminate()
             timeout_secs = 10
             output = ''
             for _ in xrange(timeout_secs):
-                if self.process.poll() is not None:
+                if process.poll() is not None:
                     break
                 time.sleep(1)
             else:
                 output += _read_nonblock(self.process.stdout)
                 self.process.kill()
                 self.logger.error('iio-capture did not terminate gracefully')
-                if self.process.poll() is None:
+                if process.poll() is None:
                     msg = 'Could not terminate iio-capture:\n{}'
                     raise HostError(msg.format(output))
             if self.process.returncode != 15: # iio-capture exits with 15 when killed
                 output += self.process.stdout.read()
                 raise HostError('iio-capture exited with an error ({}), output:\n{}'
                                 .format(self.process.returncode, output))
-            if not os.path.isfile(self.raw_data_file):
+            if not os.path.isfile(raw_data_file):
                 raise HostError('Output CSV not generated.')
 
     def get_data(self, outfile):
         class DeviceReader(object):
             def __init__(self, raw_data_file, columns):
                 self._reader = csv.DictReader(open(raw_data_file, 'rb'),
-                                              skipinitialspace=Truee)
+                                              skipinitialspace=True)
                 self._current_row = self._reader.next()
                 self.columns = columns
                 self.finished = False
@@ -136,11 +136,14 @@ class AcmeCapeInstrument(Instrument):
         active_devices = set(c.iio_device for c in self.active_channels)
         readers = {}
         for device, raw_data_file in zip(self.iio_devices, self.raw_data_files):
-            if device not in self.active_devices:
+            print device
+            if device not in active_devices:
+                print 'no'
                 continue
 
             if os.stat(raw_data_file).st_size == 0:
-                self.logger.warning('"{}" appears to be empty'.format(self.raw_data_file))
+                print('"{}" appears to be empty'.format(raw_data_file))
+                self.logger.warning('"{}" appears to be empty'.format(raw_data_file))
                 continue
 
             columns = [c.iio_column for c in self.active_channels
